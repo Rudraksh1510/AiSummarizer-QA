@@ -18,9 +18,3 @@ logging.basicConfig(
     format="[ %(asctime)s ] %(lineno)d %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
-
-# Example usage
-if __name__ == "__main__":
-    logging.info("Logging has started.")
-    logging.warning("This is a warning message.")
-    logging.error("This is an error message.")
