@@ -1,13 +1,12 @@
-from PyPDF2 import PdfReader
+
 from pinecone import Pinecone
 from dotenv import load_dotenv
 from src.pdfsummarizer.logger import logging
-from src.pdfsummarizer.utils import read_file,get_table_data
+from src.pdfsummarizer.utils import extract_text_from_pdf
 import os
 
 #langchain Imports
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain_core.prompts import ChatPromptTemplate
@@ -20,22 +19,7 @@ pc = Pinecone(
     api_key=os.getenv("PINECONE_API_KEY")
 )
 api_key = os.getenv("GOOGLE_API_KEY")
-
-# Extracting text from Pdf using PyPDF2 and as well as making chunks of it. 
-def extract_text_from_pdf(file):
-    reader = PdfReader(file)
-    text = ""
-
-    for page in reader.pages:
-        text += (page.extract_text() or "") + "\n"
-    text_splitter=RecursiveCharacterTextSplitter(
-        chunk_size=700,
-        chunk_overlap=100 
-    )
-
-    chunks=text_splitter.split_text(text)
-
-    return chunks
+logging.info("API keys loaded successfully.")
 
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
@@ -79,7 +63,7 @@ rag_chain = (
     }
     | prompt
     | llm
-    | StrOutputParser()
+    | StrOutputParser() #Make the output printable 
 )
 
 while True:
