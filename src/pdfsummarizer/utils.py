@@ -1,5 +1,6 @@
 from pathlib import Path
 from PyPDF2 import PdfReader
+from src.pdfsummarizer.logger import logging
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # Extracting text from Pdf using PyPDF2 and as well as making chunks of it. 
@@ -36,8 +37,9 @@ def extract_text_from_file(file):
         )
 
         chunks = text_splitter.split_text(text)
-        logging.info("Text Extraction was successful!")
+        logging.info(f"Extracted {len(chunks)} chunks successfully.")
         return chunks
 
     except Exception as e:
-        raise ValueError(f"Error reading file: {str(e)}")
+        logging.exception(e)
+        raise
