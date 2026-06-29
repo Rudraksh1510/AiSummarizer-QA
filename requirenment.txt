@@ -3,3 +3,8 @@ PyPDF2
 streamlit
 python-dotenv
 pinecone
+dotenv
+langchain_text_splitters
+langchain_google_genai
+langchain_pinecone
+dotenv
