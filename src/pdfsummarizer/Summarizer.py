@@ -15,10 +15,7 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-
-# ---------------------------------------------------------
 # Load Environment Variables
-# ---------------------------------------------------------
 
 load_dotenv()
 
@@ -29,35 +26,27 @@ pc = Pinecone(api_key=PINECONE_API_KEY)
 
 logging.info("API Keys Loaded Successfully.")
 
-
-# ---------------------------------------------------------
 # LLM
-# ---------------------------------------------------------
+
 
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
-    temperature=0.2,
+    temperature=0.4,
 )
 
-
-# ---------------------------------------------------------
 # Embeddings
-# ---------------------------------------------------------
 
 embeddings = GoogleGenerativeAIEmbeddings(
     model="gemini-embedding-2-preview"
 )
 
-
-# ---------------------------------------------------------
 # Prompt
-# ---------------------------------------------------------
 
 prompt = ChatPromptTemplate.from_template(
     """
 You are a helpful AI assistant.
 
-Answer ONLY using the provided context.
+You have to understand the question very  carefully and then answer the question using the information from the document.
 
 If the answer is not present in the context, reply:
 
@@ -75,10 +64,7 @@ Answer:
 
 output_parser = StrOutputParser()
 
-
-# ---------------------------------------------------------
 # Build Vector Store
-# ---------------------------------------------------------
 
 def build_rag_chain(uploaded_file):
 
@@ -119,9 +105,7 @@ def build_rag_chain(uploaded_file):
     return index
 
 
-# ---------------------------------------------------------
 # Ask Question
-# ---------------------------------------------------------
 
 def ask_question(index, question):
 
