@@ -5,11 +5,47 @@ import fitz
 import pytesseract
 from PIL import Image
 from pptx import Presentation
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 from src.pdfsummarizer.logger import logging
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # Extracting text from PDF/PPTX using OCR (PyMuPDF + pytesseract, no poppler dependency)
 # and as well as making chunks of it.
+
+
+def _iter_all_shapes(shapes):
+    """Yield every shape on a slide, descending into group shapes.
+
+    `slide.shapes` only iterates top-level shapes - anything a user has
+    grouped (pictures, textboxes, tables) is otherwise skipped entirely.
+    """
+    for shape in shapes:
+        yield shape
+        if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+            yield from _iter_all_shapes(shape.shapes)
+
+
+def _extract_image_blob(shape):
+    """Return raw image bytes if this shape is carrying a picture.
+
+    Handles both plain Picture shapes (shape_type == PICTURE) AND picture
+    placeholders (shape_type == PLACEHOLDER) - a placeholder with an image
+    inserted into it still reports as PLACEHOLDER, not PICTURE, so checking
+    only for PICTURE silently misses it.
+    """
+    try:
+        if shape.shape_type in (MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.PLACEHOLDER):
+            return shape.image.blob
+    except AttributeError:
+        # Placeholder exists but has no picture inserted into it (e.g. an
+        # empty title/body placeholder) - nothing to OCR.
+        return None
+    except NotImplementedError:
+        # A handful of custom/freeform autoshapes don't implement
+        # shape_type at all - treat as "not a picture" rather than crash.
+        return None
+    return None
+
 
 def extract_text_from_file(file):
     try:
@@ -33,34 +69,55 @@ def extract_text_from_file(file):
 
         # PowerPoint Files (text extraction + OCR on embedded images)
         elif file_extension in [".ppt", ".pptx"]:
+            if file_extension == ".ppt":
+                # python-pptx only reads the modern OOXML .pptx format.
+                # A real legacy binary .ppt fails with a cryptic
+                # PackageNotFoundError, so fail loudly and clearly instead.
+                raise ValueError(
+                    "Legacy .ppt files are not supported. python-pptx can "
+                    "only read the modern .pptx format - please save/export "
+                    "the file as .pptx and re-upload."
+                )
+
             file_bytes = file.read()
             presentation = Presentation(BytesIO(file_bytes))
 
             for slide_number, slide in enumerate(presentation.slides, start=1):
-                for shape in slide.shapes:
-                    # Native text on the slide (text boxes, titles, etc.)
-                    if shape.has_text_frame:
-                        for paragraph in shape.text_frame.paragraphs:
-                            for run in paragraph.runs:
-                                text += run.text + " "
-                        text += "\n"
+                for shape in _iter_all_shapes(slide.shapes):
+                    try:
+                        # Native text (text boxes, titles, body placeholders, etc.)
+                        if shape.has_text_frame:
+                            for paragraph in shape.text_frame.paragraphs:
+                                line = "".join(run.text for run in paragraph.runs)
+                                if line:
+                                    text += line + "\n"
 
-                    # Tables
-                    if shape.has_table:
-                        for row in shape.table.rows:
-                            for cell in row.cells:
-                                text += cell.text + " "
-                            text += "\n"
+                        # Tables
+                        if shape.has_table:
+                            for row in shape.table.rows:
+                                text += " ".join(cell.text for cell in row.cells) + "\n"
 
-                    # OCR on embedded images (screenshots, diagrams, etc.)
-                    if shape.shape_type == 13:  # MSO_SHAPE_TYPE.PICTURE
-                        try:
-                            image_bytes = shape.image.blob
-                            image = Image.open(BytesIO(image_bytes))
-                            ocr_text = pytesseract.image_to_string(image)
-                            text += (ocr_text or "") + "\n"
-                        except Exception as img_err:
-                            logging.warning(f"Could not OCR image on slide {slide_number}: {img_err}")
+                        # Pictures - both plain Picture shapes and picture
+                        # placeholders that have an image inserted into them.
+                        image_blob = _extract_image_blob(shape)
+                        if image_blob:
+                            try:
+                                image = Image.open(BytesIO(image_blob))
+                                ocr_text = pytesseract.image_to_string(image)
+                                text += (ocr_text or "") + "\n"
+                            except Exception as img_err:
+                                logging.warning(
+                                    f"Could not OCR image on slide {slide_number}: {img_err}"
+                                )
+
+                    except NotImplementedError:
+                        # Some custom/freeform autoshapes don't implement
+                        # shape_type / related properties - skip rather than
+                        # crash the whole file over one odd shape.
+                        logging.warning(
+                            f"Skipped an unrecognized shape on slide {slide_number}."
+                        )
+                        continue
 
                 logging.info(f"Processed slide {slide_number}.")
 
@@ -71,7 +128,7 @@ def extract_text_from_file(file):
         else:
             raise ValueError(
                 f"Unsupported file type: {file_extension}. "
-                "Supported formats are PDF, PPT, PPTX, TXT, MD, and CSV."
+                "Supported formats are PDF, PPTX, TXT, MD, and CSV."
             )
 
         if not text.strip():
