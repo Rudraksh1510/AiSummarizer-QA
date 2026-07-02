@@ -4,7 +4,7 @@ from src.pdfsummarizer.Summarizer import ask_question
 
 uploaded_file = st.file_uploader(
     "Upload your file",
-    type=["pdf", "txt", "md", "csv"]
+    type=["pdf", "txt", "md", "csv","pptx"]
 )
 
 if uploaded_file:
