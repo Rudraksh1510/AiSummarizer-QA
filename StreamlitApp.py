@@ -1,10 +1,11 @@
 import streamlit as st
 from src.pdfsummarizer.Summarizer import build_rag_chain
 from src.pdfsummarizer.Summarizer import ask_question
+from src.pdfsummarizer.Summarizer import get_chat_history
 
 uploaded_file = st.file_uploader(
     "Upload your file",
-    type=["pdf", "txt", "md", "csv","pptx"]
+    type=["pdf", "txt", "md", "csv", "pptx"]
 )
 
 if uploaded_file:
@@ -28,15 +29,25 @@ if uploaded_file:
                 st.error(f"Error while processing document:\n\n{e}")
                 st.stop()
 
+    # Render the full chat history (last 5 turns held in memory) on every rerun
+    for message in get_chat_history():
+        role = "user" if message.type == "human" else "assistant"
+        with st.chat_message(role):
+            st.write(message.content)
+
     question = st.chat_input("Ask something...")
 
     if question:
+
+        with st.chat_message("user"):
+            st.write(question)
 
         try:
             with st.spinner("Searching..."):
                 answer = ask_question(st.session_state.index, question)
 
-            st.write(answer)
+            with st.chat_message("assistant"):
+                st.write(answer)
 
         except Exception as e:
             if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):

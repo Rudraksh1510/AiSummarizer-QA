@@ -162,7 +162,10 @@ def build_rag_chain(uploaded_file):
     logging.info("Vectors Uploaded Successfully.")
 
     return index
-
+    
+def get_chat_history():
+    """Returns the list of messages currently held in memory for this session."""
+    return _get_session_history(get_session_id()).messages
 
 # Ask Question
 
