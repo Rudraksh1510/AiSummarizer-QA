@@ -115,6 +115,11 @@ def get_session_id() -> str:
     return st.session_state.rag_session_id
 
 
+def clear_session_history() -> None:
+    """Reset the current Streamlit session's chat history."""
+    _session_store[get_session_id()] = InMemoryChatMessageHistory()
+
+
 rag_chain_with_memory = RunnableWithMessageHistory(
     base_chain,
     _get_session_history,
@@ -129,6 +134,11 @@ def build_rag_chain(uploaded_file):
 
     logging.info("Processing uploaded file...")
 
+    try:
+        uploaded_file.seek(0)
+    except Exception:
+        pass
+
     chunks = extract_text_from_file(uploaded_file)
 
     logging.info(f"Generated {len(chunks)} chunks.")
@@ -136,6 +146,13 @@ def build_rag_chain(uploaded_file):
     index_name = "test"
 
     index = pc.Index(index_name)
+
+    # Remove any previous vectors from the same index before uploading new content.
+    try:
+        index.delete(delete_all=True)
+        logging.info("Cleared previous Pinecone index vectors.")
+    except Exception as delete_err:
+        logging.warning(f"Could not clear Pinecone index before upload: {delete_err}")
 
     logging.info("Generating embeddings...")
 
@@ -162,7 +179,7 @@ def build_rag_chain(uploaded_file):
     logging.info("Vectors Uploaded Successfully.")
 
     return index
-    
+
 def get_chat_history():
     """Returns the list of messages currently held in memory for this session."""
     return _get_session_history(get_session_id()).messages

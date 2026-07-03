@@ -1,12 +1,35 @@
+import hashlib
 import streamlit as st
 from src.pdfsummarizer.Summarizer import build_rag_chain
 from src.pdfsummarizer.Summarizer import ask_question
 from src.pdfsummarizer.Summarizer import get_chat_history
+from src.pdfsummarizer.Summarizer import clear_session_history
 
 uploaded_file = st.file_uploader(
     "Upload your file",
     type=["pdf", "txt", "md", "csv", "pptx"]
 )
+
+current_file_key = None
+if uploaded_file is not None:
+    uploaded_file_bytes = uploaded_file.read()
+    uploaded_file.seek(0)
+    content_hash = hashlib.sha256(uploaded_file_bytes).hexdigest()
+    current_file_key = (uploaded_file.name, uploaded_file.type, len(uploaded_file_bytes), content_hash)
+
+previous_file_key = st.session_state.get("uploaded_file_key")
+
+# if the user clears the file uploader, reset the index and chat history
+if uploaded_file is None and previous_file_key is not None:
+    st.session_state.pop("uploaded_file_key", None)
+    st.session_state.pop("index", None)
+    clear_session_history()
+
+# if a different file is uploaded, discard the previous file's index and history
+if uploaded_file is not None and current_file_key != previous_file_key:
+    st.session_state["uploaded_file_key"] = current_file_key
+    st.session_state.pop("index", None)
+    clear_session_history()
 
 if uploaded_file:
 
