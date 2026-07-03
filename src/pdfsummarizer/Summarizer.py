@@ -1,9 +1,12 @@
 # Imports
 import os
 import uuid
+
 import streamlit as st
 from dotenv import load_dotenv
 from pinecone import Pinecone
+
+import streamlit as st
 
 from src.pdfsummarizer.logger import logging
 from src.pdfsummarizer.utils import extract_text_from_file
@@ -12,8 +15,12 @@ from src.pdfsummarizer.utils import extract_text_from_file
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.chat_history import BaseChatMessageHistory, InMemoryChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.messages import trim_messages
+from langchain_core.runnables import RunnableLambda
 
 # Load Environment Variables
 
@@ -42,9 +49,11 @@ embeddings = GoogleGenerativeAIEmbeddings(
 
 # Prompt
 
-prompt = ChatPromptTemplate.from_template(
-    """
-You are a helpful AI assistant.
+prompt = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            """You are a helpful AI assistant.
 
 You have to understand the question very  carefully and then answer the question using the information from the document.
 
@@ -54,15 +63,65 @@ If the answer is not present in the context, reply:
 
 Context:
 {context}
-
-Question:
-{question}
-
-Answer:
-"""
+""",
+        ),
+        MessagesPlaceholder(variable_name="history"),
+        ("human", "{question}"),
+    ]
 )
 
 output_parser = StrOutputParser()
+
+# Trim history to last 5 messages (i.e. keep window small, drop older turns)
+trimmer = trim_messages(
+    max_tokens=5,
+    strategy="last",
+    token_counter=len,   # count messages, not tokens -> "5" = last 5 messages
+    include_system=False,
+    start_on="human",
+)
+
+# Base chain: trims history -> formats prompt -> LLM -> string output
+chain = (
+    RunnablePassthrough_dict_wrapper := (
+        lambda inputs: {
+            **inputs,
+            "history": trimmer.invoke(inputs["history"]),
+        }
+    )
+)
+
+base_chain = (
+    RunnableLambda(chain)
+    | prompt
+    | llm
+    | output_parser
+)
+
+# Per-session in-memory chat history store, isolated by Streamlit session
+_session_store: dict[str, BaseChatMessageHistory] = {}
+
+
+def _get_session_history(session_id: str) -> BaseChatMessageHistory:
+    if session_id not in _session_store:
+        _session_store[session_id] = InMemoryChatMessageHistory()
+    return _session_store[session_id]
+
+
+def get_session_id() -> str:
+    """One stable session id per Streamlit session (browser tab)."""
+    if "rag_session_id" not in st.session_state:
+        st.session_state.rag_session_id = str(uuid.uuid4())
+    return st.session_state.rag_session_id
+
+
+rag_chain_with_memory = RunnableWithMessageHistory(
+    base_chain,
+    _get_session_history,
+    input_messages_key="question",
+    history_messages_key="history",
+)
+
 
 # Build Vector Store
 
@@ -127,16 +186,14 @@ def ask_question(index, question):
         for match in results["matches"]
     )
 
-    # Create prompt
-    messages = prompt.format_messages(
-        context=context,
-        question=question
+    # LLM response, with last-5-message memory handled by RunnableWithMessageHistory
+    answer = rag_chain_with_memory.invoke(
+        {
+            "context": context,
+            "question": question,
+        },
+        config={"configurable": {"session_id": get_session_id()}},
     )
-
-    # LLM response
-    response = llm.invoke(messages)
-
-    answer = output_parser.invoke(response)
 
     logging.info("Answer Generated Successfully.")
 
