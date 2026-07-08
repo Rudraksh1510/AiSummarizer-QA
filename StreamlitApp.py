@@ -5,39 +5,44 @@ from src.pdfsummarizer.Summarizer import ask_question
 from src.pdfsummarizer.Summarizer import get_chat_history
 from src.pdfsummarizer.Summarizer import clear_session_history
 
-uploaded_file = st.file_uploader(
-    "Upload your file",
-    type=["pdf", "txt", "md", "csv", "pptx"]
+uploaded_files = st.file_uploader(
+    "Upload your file(s)",
+    type=["pdf", "txt", "md", "csv", "pptx"],
+    accept_multiple_files=True
 )
 
 current_file_key = None
-if uploaded_file is not None:
-    uploaded_file_bytes = uploaded_file.read()
-    uploaded_file.seek(0)
-    content_hash = hashlib.sha256(uploaded_file_bytes).hexdigest()
-    current_file_key = (uploaded_file.name, uploaded_file.type, len(uploaded_file_bytes), content_hash)
+if uploaded_files:
+    # Create a hash of all uploaded files for change detection
+    file_info_list = []
+    for file in uploaded_files:
+        file_bytes = file.read()
+        file.seek(0)
+        content_hash = hashlib.sha256(file_bytes).hexdigest()
+        file_info_list.append((file.name, file.type, len(file_bytes), content_hash))
+    current_file_key = tuple(file_info_list)
 
 previous_file_key = st.session_state.get("uploaded_file_key")
 
 # if the user clears the file uploader, reset the index and chat history
-if uploaded_file is None and previous_file_key is not None:
+if not uploaded_files and previous_file_key is not None:
     st.session_state.pop("uploaded_file_key", None)
     st.session_state.pop("index", None)
     clear_session_history()
 
-# if a different file is uploaded, discard the previous file's index and history
-if uploaded_file is not None and current_file_key != previous_file_key:
+# if different files are uploaded, discard the previous file's index and history
+if uploaded_files and current_file_key != previous_file_key:
     st.session_state["uploaded_file_key"] = current_file_key
     st.session_state.pop("index", None)
     clear_session_history()
 
-if uploaded_file:
+if uploaded_files:
 
     # Build the index only once
     if "index" not in st.session_state:
         try:
-            with st.spinner("Processing your document..."):
-                st.session_state.index = build_rag_chain(uploaded_file)
+            with st.spinner("Processing your document(s)..."):
+                st.session_state.index = build_rag_chain(uploaded_files)
 
             st.success("✅ Document processed successfully!")
 

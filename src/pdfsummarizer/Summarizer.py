@@ -1,4 +1,3 @@
-# Imports
 import os
 import uuid
 
@@ -9,9 +8,8 @@ from pinecone import Pinecone
 import streamlit as st
 
 from src.pdfsummarizer.logger import logging
-from src.pdfsummarizer.utils import extract_text_from_file
+from src.pdfsummarizer.utils import extract_text_from_file, extract_text_from_files
 
-# LangChain Imports
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
@@ -22,7 +20,6 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.messages import trim_messages
 from langchain_core.runnables import RunnableLambda
 
-# Load Environment Variables
 
 load_dotenv()
 
@@ -130,16 +127,23 @@ rag_chain_with_memory = RunnableWithMessageHistory(
 
 # Build Vector Store
 
-def build_rag_chain(uploaded_file):
+def build_rag_chain(uploaded_files):
 
-    logging.info("Processing uploaded file...")
+    logging.info("Processing uploaded file(s)...")
 
-    try:
-        uploaded_file.seek(0)
-    except Exception:
-        pass
+    # Handle both single file and multiple files for backward compatibility
+    if not isinstance(uploaded_files, list):
+        uploaded_files = [uploaded_files]
 
-    chunks = extract_text_from_file(uploaded_file)
+    # Seek to start for all files
+    for file in uploaded_files:
+        try:
+            file.seek(0)
+        except Exception:
+            pass
+
+    # Use extract_text_from_files for multiple files
+    chunks = extract_text_from_files(uploaded_files)
 
     logging.info(f"Generated {len(chunks)} chunks.")
 
