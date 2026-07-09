@@ -1,3 +1,5 @@
+import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from io import BytesIO
 import pymupdf
@@ -155,13 +157,22 @@ def extract_text_from_file(file):
         raise
 
 
+def _extract_text_from_file_with_reset(file):
+    """Extract text from a file after resetting its pointer to the start."""
+    try:
+        file.seek(0)
+    except Exception:
+        pass
+    return _extract_text_from_single_file(file)
+
+
 def extract_text_from_files(files):
     """
-    Extract and chunk text from multiple files.
-    
+    Extract and chunk text from multiple files in parallel.
+
     Args:
         files: A list of file objects or a single file object
-        
+
     Returns:
         A list of text chunks from all processed files
     """
@@ -169,33 +180,46 @@ def extract_text_from_files(files):
         # Handle single file for backward compatibility
         if not isinstance(files, list):
             files = [files]
-        
+
         if not files:
             raise ValueError("No files provided.")
-        
-        all_text = ""
-        
-        # Extract text from each file
-        for file in files:
-            try:
-                logging.info(f"Processing file: {file.name}")
-                text = _extract_text_from_single_file(file)
-                all_text += text + "\n"
-                logging.info(f"Successfully extracted text from {file.name}.")
-            except Exception as e:
-                logging.warning(f"Error processing {file.name}: {e}")
-                # Continue processing other files even if one fails
-                continue
-        
+
+        if len(files) == 1:
+            file = files[0]
+            logging.info(f"Processing file: {file.name}")
+            text = _extract_text_from_file_with_reset(file)
+            logging.info(f"Successfully extracted text from {file.name}.")
+            all_text = text + "\n"
+        else:
+            max_workers = min(len(files), max(2, os.cpu_count() or 4))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_map = {
+                    executor.submit(_extract_text_from_file_with_reset, file): file
+                    for file in files
+                }
+
+                extracted_texts = []
+                for future in future_map:
+                    file = future_map[future]
+                    try:
+                        logging.info(f"Processing file: {file.name}")
+                        text = future.result()
+                        extracted_texts.append(text)
+                        logging.info(f"Successfully extracted text from {file.name}.")
+                    except Exception as e:
+                        logging.warning(f"Error processing {file.name}: {e}")
+
+            all_text = "\n".join(text for text in extracted_texts if text)
+
         if not all_text.strip():
             raise ValueError("No readable text found in any of the provided files.")
-        
+
         # Split combined text into chunks
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=700,
             chunk_overlap=100
         )
-        
+
         chunks = text_splitter.split_text(all_text)
         logging.info(f"Extracted {len(chunks)} chunks successfully from {len(files)} file(s).")
         return chunks
